@@ -1,0 +1,144 @@
+package com.example.listenbook
+
+import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import java.util.Locale
+
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+    private var tts: TextToSpeech? = null
+    private var ready by mutableStateOf(false)
+    private var availableVoices by mutableStateOf<List<Voice>>(emptyList())
+    private var selectedVoice by mutableStateOf<Voice?>(null)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        tts = TextToSpeech(this, this)
+        setContent { ListenBookScreen() }
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            ready = true
+            val engine = tts ?: return
+            engine.language = Locale.getDefault()
+            availableVoices = engine.voices
+                ?.filter { it.locale.language == Locale.getDefault().language }
+                ?.sortedBy { it.name }
+                ?: emptyList()
+            selectedVoice = engine.voice
+        }
+    }
+
+    @Composable
+    private fun ListenBookScreen() {
+        var text by remember { mutableStateOf("") }
+        var rate by remember { mutableFloatStateOf(1.0f) }
+        var menuOpen by remember { mutableStateOf(false) }
+        var voiceLabel by remember { mutableStateOf("Device default voice") }
+
+        MaterialTheme {
+            Column(
+                modifier = Modifier.fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text("ListenBook", style = MaterialTheme.typography.headlineLarge)
+                Text("Your personal audiobook reader")
+
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Paste or type your book text") },
+                    modifier = Modifier.fillMaxWidth().height(240.dp)
+                )
+
+                Text("Reading speed: ${"%.1f".format(rate)}×")
+                Slider(
+                    value = rate,
+                    onValueChange = { rate = it },
+                    valueRange = 0.6f..1.8f
+                )
+
+                Text("Voice")
+                Box {
+                    OutlinedButton(
+                        onClick = { menuOpen = true },
+                        enabled = ready
+                    ) {
+                        Text(voiceLabel)
+                    }
+
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Device default voice") },
+                            onClick = {
+                                selectedVoice = null
+                                voiceLabel = "Device default voice"
+                                menuOpen = false
+                            }
+                        )
+
+                        availableVoices.forEach { voice ->
+                            DropdownMenuItem(
+                                text = { Text(voice.name) },
+                                onClick = {
+                                    selectedVoice = voice
+                                    voiceLabel = voice.name
+                                    menuOpen = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val engine = tts ?: return@Button
+                            if (text.isNotBlank()) {
+                                engine.setSpeechRate(rate)
+                                selectedVoice?.let { engine.voice = it }
+                                engine.speak(
+                                    text,
+                                    TextToSpeech.QUEUE_FLUSH,
+                                    null,
+                                    "listenbook-text"
+                                )
+                            }
+                        },
+                        enabled = ready && text.isNotBlank()
+                    ) {
+                        Text("Play")
+                    }
+
+                    OutlinedButton(
+                        onClick = { tts?.stop() },
+                        enabled = ready
+                    ) {
+                        Text("Stop")
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        super.onDestroy()
+    }
+}
